@@ -1,0 +1,1015 @@
+#!/usr/bin/env bash
+#
+#  ██████╗ ██╗   ██╗██╗██╗     ██████╗  ██████╗ ███████╗
+#  ██╔══██╗██║   ██║██║██║     ██╔══██╗██╔════╝ ██╔════╝
+#  ██║  ██║██║   ██║██║██║     ██║  ██║██║  ███╗█████╗  
+#  ██║  ██║██║   ██║██║██║     ██║  ██║██║   ██║██╔══╝  
+#  ██████╔╝╚██████╔╝██║███████╗██████╔╝╚██████╔╝███████╗
+#  ╚═════╝  ╚═════╝ ╚═╝╚══════╝╚═════╝  ╚═════╝ ╚══════╝
+#                                                      
+#  🍹 The Refreshing Package Manager for Arch-based Distros
+#  🇧🇷 Made with Brazilian passion!
+#
+#  Version: 1.0.0
+#  License: MIT
+#  Author: Juice Team
+#
+
+set -euo pipefail
+
+# ═══════════════════════════════════════════════════════════════════════════
+# BRAZILIAN FLAG COLORS - Our Identity! 🇧🇷
+# ═══════════════════════════════════════════════════════════════════════════
+readonly GREEN='\033[38;5;34m'       # Brazilian Green - Success/Install
+readonly YELLOW='\033[38;5;226m'     # Brazilian Yellow - Warning/Prompts  
+readonly BLUE='\033[38;5;25m'        # Brazilian Blue - Info/Headers
+readonly WHITE='\033[38;5;255m'      # White - Normal text
+readonly RED='\033[38;5;196m'        # Red - Errors
+readonly CYAN='\033[38;5;51m'        # Cyan - Progress
+readonly MAGENTA='\033[38;5;201m'    # Magenta - Special
+readonly ORANGE='\033[38;5;208m'     # Orange - Updates
+readonly BOLD='\033[1m'
+readonly DIM='\033[2m'
+readonly ITALIC='\033[3m'
+readonly RESET='\033[0m'
+
+# ═══════════════════════════════════════════════════════════════════════════
+# CONFIGURATION
+# ═══════════════════════════════════════════════════════════════════════════
+readonly JUICE_VERSION="1.0.0"
+readonly JUICE_CONFIG_DIR="${HOME}/.config/juice"
+readonly JUICE_CACHE_DIR="${HOME}/.cache/juice"
+readonly JUICE_LOG_FILE="${JUICE_CACHE_DIR}/juice.log"
+readonly JUICE_DISTROBOX_DEFAULT="arch"
+
+# Distrobox containers configuration
+declare -A DISTROBOX_IMAGES=(
+    ["arch"]="archlinux:latest"
+    ["debian"]="debian:sid"
+    ["ubuntu"]="ubuntu:latest"
+    ["fedora"]="fedora:latest"
+    ["kali"]="kalilinux/kali-rolling:latest"
+)
+
+# ═══════════════════════════════════════════════════════════════════════════
+# UTILITY FUNCTIONS
+# ═══════════════════════════════════════════════════════════════════════════
+
+juice_init() {
+    mkdir -p "${JUICE_CONFIG_DIR}" "${JUICE_CACHE_DIR}"
+    touch "${JUICE_LOG_FILE}"
+}
+
+log() {
+    local level="$1"
+    shift
+    local message="$*"
+    local timestamp
+    timestamp=$(date '+%Y-%m-%d %H:%M:%S')
+    echo "[${timestamp}] [${level}] ${message}" >> "${JUICE_LOG_FILE}"
+}
+
+# ═══════════════════════════════════════════════════════════════════════════
+# BREWING ANIMATION SYSTEM - The Magic! ✨
+# ═══════════════════════════════════════════════════════════════════════════
+
+# Brewing bubbles animation
+brew_animation() {
+    local duration="${1:-2}"
+    local message="${2:-Brewing}"
+    local color="${3:-${GREEN}}"
+    
+    local frames=(
+        "   🫧    "
+        "  🫧🫧   "
+        " 🫧🫧🫧  "
+        "🫧🫧🫧🫧 "
+        " 🫧🫧🫧  "
+        "  🫧🫧   "
+        "   🫧    "
+    )
+    
+    local spin=('⣾' '⣽' '⣻' '⢿' '⡿' '⣟' '⣯' '⣷')
+    
+    local elapsed=0
+    local frame_idx=0
+    local spin_idx=0
+    
+    while (( elapsed < duration )); do
+        local frame="${frames[frame_idx % ${#frames[@]}]}"
+        local spinner="${spin[spin_idx % ${#spin[@]}]}"
+        
+        printf "\r${color}${BOLD}  ${spinner}${RESET} ${color}${message}... ${frame}${RESET}   "
+        
+        sleep 0.1
+        ((elapsed += 1, frame_idx++, spin_idx++))
+    done
+    
+    printf "\r"
+}
+
+# Success celebration animation
+celebrate_success() {
+    local message="$1"
+    
+    echo -e "${GREEN}${BOLD}"
+    echo "  ╭──────────────────────────────╮"
+    echo "  │  🎉 ${message} 🎉  │"
+    echo "  ╰──────────────────────────────╯"
+    echo -e "${RESET}"
+    
+    # Confetti effect
+    local confetti=('🎊' '✨' '🌟' '💫' '⭐' '🍋' '🍊')
+    for i in {1..5}; do
+        local idx=$((RANDOM % ${#confetti[@]}))
+        printf "${GREEN}${confetti[idx]}${RESET} "
+        sleep 0.05
+    done
+    echo ""
+}
+
+# Progress bar with juice filling
+juice_progress() {
+    local current="$1"
+    local total="$2"
+    local message="$3"
+    
+    local width=40
+    local percent=$((current * 100 / total))
+    local filled=$((current * width / total))
+    local empty=$((width - filled))
+    
+    printf "\r${BLUE}${BOLD}  🧃 ${message}: ${RESET}"
+    printf "${GREEN}"
+    printf '█%.0s' $(seq 1 $filled 2>/dev/null) || true
+    printf "${DIM}"
+    printf '░%.0s' $(seq 1 $empty 2>/dev/null) || true
+    printf "${RESET} ${YELLOW}${BOLD}${percent}%%${RESET}   "
+}
+
+# ═══════════════════════════════════════════════════════════════════════════
+# DISPLAY FUNCTIONS - Beautiful Output! 🎨
+# ═══════════════════════════════════════════════════════════════════════════
+
+show_banner() {
+    clear
+    echo -e "${GREEN}${BOLD}"
+    cat << 'EOF'
+  ██████╗ ██╗   ██╗██╗██╗     ██████╗  ██████╗ ███████╗
+  ██╔══██╗██║   ██║██║██║     ██╔══██╗██╔════╝ ██╔════╝
+  ██║  ██║██║   ██║██║██║     ██║  ██║██║  ███╗█████╗  
+  ██║  ██║██║   ██║██║██║     ██║  ██║██║   ██║██╔══╝  
+  ██████╔╝╚██████╔╝██║███████╗██████╔╝╚██████╔╝███████╗
+  ╚═════╝  ╚═════╝ ╚═╝╚══════╝╚═════╝  ╚═════╝ ╚══════╝
+EOF
+    echo -e "${YELLOW}${BOLD}  🍹 The Refreshing Package Manager${RESET}"
+    echo -e "${BLUE}  🇧🇷 Brazilian-powered • Fast • Playful • Modern${RESET}"
+    echo ""
+}
+
+show_help() {
+    show_banner
+    echo -e "${BLUE}${BOLD}═══════════════════════════════════════════════════════════════${RESET}"
+    echo -e "${WHITE}${BOLD}  USAGE:${RESET}"
+    echo -e "    ${GREEN}juice${RESET} [command] [options] [package(s)]"
+    echo ""
+    echo -e "${WHITE}${BOLD}  COMMANDS:${RESET}"
+    echo ""
+    echo -e "  ${GREEN}📦 Pacman (Native)${RESET}"
+    echo -e "    ${YELLOW}install${RESET}, ${YELLOW}-S${RESET}     Install packages"
+    echo -e "    ${YELLOW}remove${RESET}, ${YELLOW}-R${RESET}      Remove packages"
+    echo -e "    ${YELLOW}update${RESET}, ${YELLOW}-Syu${RESET}    Update system"
+    echo -e "    ${YELLOW}search${RESET}, ${YELLOW}-Ss${RESET}     Search packages"
+    echo -e "    ${YELLOW}info${RESET}, ${YELLOW}-Si${RESET}      Package info"
+    echo -e "    ${YELLOW}list${RESET}, ${YELLOW}-Q${RESET}       List installed"
+    echo ""
+    echo -e "  ${BLUE}📦 Flatpak${RESET}"
+    echo -e "    ${YELLOW}flat-install${RESET}    Install Flatpak"
+    echo -e "    ${YELLOW}flat-remove${RESET}     Remove Flatpak"
+    echo -e "    ${YELLOW}flat-update${RESET}     Update Flatpaks"
+    echo -e "    ${YELLOW}flat-search${RESET}     Search Flathub"
+    echo -e "    ${YELLOW}flat-list${RESET}       List Flatpaks"
+    echo ""
+    echo -e "  ${MAGENTA}📦 Snap${RESET}"
+    echo -e "    ${YELLOW}snap-install${RESET}    Install Snap"
+    echo -e "    ${YELLOW}snap-remove${RESET}     Remove Snap"
+    echo -e "    ${YELLOW}snap-update${RESET}     Update Snaps"
+    echo -e "    ${YELLOW}snap-search${RESET}     Search Snap Store"
+    echo -e "    ${YELLOW}snap-list${RESET}       List Snaps"
+    echo ""
+    echo -e "  ${CYAN}📦 Distrobox${RESET}"
+    echo -e "    ${YELLOW}box-create${RESET}      Create container"
+    echo -e "    ${YELLOW}box-enter${RESET}       Enter container"
+    echo -e "    ${YELLOW}box-list${RESET}        List containers"
+    echo -e "    ${YELLOW}box-remove${RESET}      Remove container"
+    echo -e "    ${YELLOW}box-install${RESET}     Install in container"
+    echo ""
+    echo -e "  ${ORANGE}⚡ Quick Actions${RESET}"
+    echo -e "    ${YELLOW}refresh${RESET}         Update all (pacman + flatpak + snap)"
+    echo -e "    ${YELLOW}clean${RESET}           Clean cache & orphans"
+    echo -e "    ${YELLOW}doctor${RESET}          System health check"
+    echo -e "    ${YELLOW}version${RESET}, ${YELLOW}-v${RESET}    Show version"
+    echo -e "    ${YELLOW}help${RESET}, ${YELLOW}-h${RESET}      Show this help"
+    echo ""
+    echo -e "${BLUE}${BOLD}═══════════════════════════════════════════════════════════════${RESET}"
+    echo -e "${DIM}  Examples:${RESET}"
+    echo -e "    ${GREEN}juice install firefox${RESET}          ${DIM}# Install with pacman${RESET}"
+    echo -e "    ${GREEN}juice flat-install discord${RESET}     ${DIM}# Install Flatpak${RESET}"
+    echo -e "    ${GREEN}juice box-create arch${RESET}          ${DIM}# Create Arch container${RESET}"
+    echo -e "    ${GREEN}juice refresh${RESET}                  ${DIM}# Update everything${RESET}"
+    echo -e "${BLUE}${BOLD}═══════════════════════════════════════════════════════════════${RESET}"
+}
+
+show_version() {
+    echo -e "${GREEN}${BOLD}  Juice v${JUICE_VERSION}${RESET}"
+    echo -e "${YELLOW}  The Refreshing Package Manager 🍹${RESET}"
+    echo -e "${BLUE}  🇧🇷 Made with Brazilian passion!${RESET}"
+}
+
+# ═══════════════════════════════════════════════════════════════════════════
+# SYSTEM CHECKS - Safety First! 🛡️
+# ═══════════════════════════════════════════════════════════════════════════
+
+check_root() {
+    if [[ $EUID -ne 0 ]]; then
+        echo -e "${YELLOW}⚠️  This action requires root privileges${RESET}"
+        echo -e "${CYAN}   Running with sudo...${RESET}"
+        exec sudo "$0" "$@"
+    fi
+}
+
+check_pacman() {
+    if ! command -v pacman &>/dev/null; then
+        echo -e "${RED}❌ Error: pacman not found!${RESET}"
+        echo -e "${YELLOW}   Juice requires an Arch-based distribution.${RESET}"
+        exit 1
+    fi
+}
+
+check_flatpak() {
+    if ! command -v flatpak &>/dev/null; then
+        echo -e "${YELLOW}⚠️  Flatpak is not installed.${RESET}"
+        echo -e "${CYAN}   Would you like to install it? [y/N]${RESET}"
+        read -r response
+        if [[ "$response" =~ ^[Yy]$ ]]; then
+            juice_pacman_install flatpak
+            flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+        else
+            return 1
+        fi
+    fi
+}
+
+check_snap() {
+    if ! command -v snap &>/dev/null; then
+        echo -e "${YELLOW}⚠️  Snap is not installed.${RESET}"
+        echo -e "${CYAN}   Would you like to install it? [y/N]${RESET}"
+        read -r response
+        if [[ "$response" =~ ^[Yy]$ ]]; then
+            juice_pacman_install snapd
+            sudo systemctl enable --now snapd.socket
+        else
+            return 1
+        fi
+    fi
+}
+
+check_distrobox() {
+    if ! command -v distrobox &>/dev/null; then
+        echo -e "${YELLOW}⚠️  Distrobox is not installed.${RESET}"
+        echo -e "${CYAN}   Would you like to install it? [y/N]${RESET}"
+        read -r response
+        if [[ "$response" =~ ^[Yy]$ ]]; then
+            juice_pacman_install distrobox podman
+        else
+            return 1
+        fi
+    fi
+}
+
+# ═══════════════════════════════════════════════════════════════════════════
+# PACMAN WRAPPER - The Core! 🐧
+# ═══════════════════════════════════════════════════════════════════════════
+
+juice_pacman_install() {
+    local packages=("$@")
+    
+    if [[ ${#packages[@]} -eq 0 ]]; then
+        echo -e "${RED}❌ No packages specified${RESET}"
+        return 1
+    fi
+    
+    check_pacman
+    
+    echo -e "${GREEN}${BOLD}📦 Installing with Pacman...${RESET}"
+    echo -e "${CYAN}   Packages: ${YELLOW}${packages[*]}${RESET}"
+    echo ""
+    
+    brew_animation 2 "Squeezing fresh juice" "${GREEN}"
+    
+    echo -e "${BLUE}────────────────────────────────────────${RESET}"
+    
+    if sudo pacman -S --noconfirm "${packages[@]}" 2>&1 | tee -a "${JUICE_LOG_FILE}"; then
+        echo -e "${BLUE}────────────────────────────────────────${RESET}"
+        celebrate_success "Installed successfully!"
+        log "INFO" "Installed packages: ${packages[*]}"
+    else
+        echo -e "${RED}❌ Installation failed${RESET}"
+        log "ERROR" "Failed to install: ${packages[*]}"
+        return 1
+    fi
+}
+
+juice_pacman_remove() {
+    local packages=("$@")
+    
+    if [[ ${#packages[@]} -eq 0 ]]; then
+        echo -e "${RED}❌ No packages specified${RESET}"
+        return 1
+    fi
+    
+    check_pacman
+    
+    echo -e "${ORANGE}${BOLD}🗑️  Removing packages...${RESET}"
+    echo -e "${CYAN}   Packages: ${YELLOW}${packages[*]}${RESET}"
+    echo ""
+    
+    brew_animation 2 "Cleaning up" "${ORANGE}"
+    
+    echo -e "${BLUE}────────────────────────────────────────${RESET}"
+    
+    if sudo pacman -Rns --noconfirm "${packages[@]}" 2>&1 | tee -a "${JUICE_LOG_FILE}"; then
+        echo -e "${BLUE}────────────────────────────────────────${RESET}"
+        echo -e "${GREEN}✅ Packages removed!${RESET}"
+        log "INFO" "Removed packages: ${packages[*]}"
+    else
+        echo -e "${RED}❌ Removal failed${RESET}"
+        log "ERROR" "Failed to remove: ${packages[*]}"
+        return 1
+    fi
+}
+
+juice_pacman_update() {
+    check_pacman
+    
+    echo -e "${GREEN}${BOLD}🔄 Updating System...${RESET}"
+    echo ""
+    
+    brew_animation 2 "Refreshing package databases" "${CYAN}"
+    
+    echo -e "${BLUE}────────────────────────────────────────${RESET}"
+    
+    if sudo pacman -Syu --noconfirm 2>&1 | tee -a "${JUICE_LOG_FILE}"; then
+        echo -e "${BLUE}────────────────────────────────────────${RESET}"
+        celebrate_success "System updated!"
+        log "INFO" "System updated"
+    else
+        echo -e "${RED}❌ Update failed${RESET}"
+        log "ERROR" "System update failed"
+        return 1
+    fi
+}
+
+juice_pacman_search() {
+    local query="$1"
+    
+    if [[ -z "$query" ]]; then
+        echo -e "${RED}❌ No search query specified${RESET}"
+        return 1
+    fi
+    
+    check_pacman
+    
+    echo -e "${BLUE}${BOLD}🔍 Searching for: ${YELLOW}${query}${RESET}"
+    echo ""
+    
+    local results
+    results=$(pacman -Ss "$query" 2>/dev/null)
+    
+    if [[ -n "$results" ]]; then
+        echo "$results" | while IFS= read -r line; do
+            if [[ "$line" =~ ^[a-z] ]]; then
+                echo -e "${GREEN}${line}${RESET}"
+            else
+                echo -e "${DIM}${line}${RESET}"
+            fi
+        done
+    else
+        echo -e "${YELLOW} No results found for '${query}'${RESET}"
+    fi
+}
+
+juice_pacman_info() {
+    local package="$1"
+    
+    if [[ -z "$package" ]]; then
+        echo -e "${RED}❌ No package specified${RESET}"
+        return 1
+    fi
+    
+    check_pacman
+    
+    echo -e "${BLUE}${BOLD}📋 Package Information: ${YELLOW}${package}${RESET}"
+    echo -e "${BLUE}────────────────────────────────────────${RESET}"
+    
+    pacman -Si "$package" 2>/dev/null || echo -e "${RED}Package not found in repositories${RESET}"
+}
+
+juice_pacman_list() {
+    check_pacman
+    
+    echo -e "${GREEN}${BOLD}📦 Installed Packages:${RESET}"
+    echo -e "${BLUE}────────────────────────────────────────${RESET}"
+    
+    pacman -Q | while IFS= read -r line; do
+        local name="${line%% *}"
+        local version="${line##* }"
+        echo -e "${GREEN}${name}${RESET} ${DIM}${version}${RESET}"
+    done
+}
+
+# ═══════════════════════════════════════════════════════════════════════════
+# FLATPAK WRAPPER - Sandboxed Apps! 📦
+# ═══════════════════════════════════════════════════════════════════════════
+
+juice_flatpak_install() {
+    local packages=("$@")
+    
+    if [[ ${#packages[@]} -eq 0 ]]; then
+        echo -e "${RED}❌ No packages specified${RESET}"
+        return 1
+    fi
+    
+    check_flatpak || return 1
+    
+    echo -e "${BLUE}${BOLD}📦 Installing Flatpak(s)...${RESET}"
+    echo -e "${CYAN}   Packages: ${YELLOW}${packages[*]}${RESET}"
+    echo ""
+    
+    brew_animation 2 "Downloading from Flathub" "${BLUE}"
+    
+    echo -e "${BLUE}────────────────────────────────────────${RESET}"
+    
+    if flatpak install -y flathub "${packages[@]}" 2>&1 | tee -a "${JUICE_LOG_FILE}"; then
+        echo -e "${BLUE}────────────────────────────────────────${RESET}"
+        celebrate_success "Flatpak installed!"
+        log "INFO" "Installed Flatpaks: ${packages[*]}"
+    else
+        echo -e "${RED}❌ Installation failed${RESET}"
+        log "ERROR" "Failed to install Flatpaks: ${packages[*]}"
+        return 1
+    fi
+}
+
+juice_flatpak_remove() {
+    local packages=("$@")
+    
+    if [[ ${#packages[@]} -eq 0 ]]; then
+        echo -e "${RED}❌ No packages specified${RESET}"
+        return 1
+    fi
+    
+    check_flatpak || return 1
+    
+    echo -e "${ORANGE}${BOLD}🗑️  Removing Flatpak(s)...${RESET}"
+    echo ""
+    
+    brew_animation 1 "Cleaning sandbox" "${ORANGE}"
+    
+    if flatpak uninstall -y "${packages[@]}" 2>&1 | tee -a "${JUICE_LOG_FILE}"; then
+        echo -e "${GREEN}✅ Flatpak(s) removed!${RESET}"
+        log "INFO" "Removed Flatpaks: ${packages[*]}"
+    else
+        echo -e "${RED}❌ Removal failed${RESET}"
+        return 1
+    fi
+}
+
+juice_flatpak_update() {
+    check_flatpak || return 1
+    
+    echo -e "${BLUE}${BOLD}🔄 Updating Flatpaks...${RESET}"
+    echo ""
+    
+    brew_animation 2 "Updating sandboxes" "${CYAN}"
+    
+    echo -e "${BLUE}────────────────────────────────────────${RESET}"
+    
+    if flatpak update -y 2>&1 | tee -a "${JUICE_LOG_FILE}"; then
+        echo -e "${BLUE}────────────────────────────────────────${RESET}"
+        echo -e "${GREEN}✅ Flatpaks updated!${RESET}"
+        log "INFO" "Flatpaks updated"
+    else
+        echo -e "${RED}❌ Update failed${RESET}"
+        return 1
+    fi
+}
+
+juice_flatpak_search() {
+    local query="$1"
+    
+    if [[ -z "$query" ]]; then
+        echo -e "${RED}❌ No search query specified${RESET}"
+        return 1
+    fi
+    
+    check_flatpak || return 1
+    
+    echo -e "${BLUE}${BOLD}🔍 Searching Flathub for: ${YELLOW}${query}${RESET}"
+    echo ""
+    
+    flatpak search "$query" | head -30
+}
+
+juice_flatpak_list() {
+    check_flatpak || return 1
+    
+    echo -e "${BLUE}${BOLD}📦 Installed Flatpaks:${RESET}"
+    echo -e "${BLUE}────────────────────────────────────────${RESET}"
+    
+    flatpak list --app | while IFS= read -r line; do
+        echo -e "${BLUE}📱 ${line}${RESET}"
+    done
+}
+
+# ═══════════════════════════════════════════════════════════════════════════
+# SNAP WRAPPER - Universal Packages! 📦
+# ═══════════════════════════════════════════════════════════════════════════
+
+juice_snap_install() {
+    local packages=("$@")
+    
+    if [[ ${#packages[@]} -eq 0 ]]; then
+        echo -e "${RED}❌ No packages specified${RESET}"
+        return 1
+    fi
+    
+    check_snap || return 1
+    
+    echo -e "${MAGENTA}${BOLD}📦 Installing Snap(s)...${RESET}"
+    echo -e "${CYAN}   Packages: ${YELLOW}${packages[*]}${RESET}"
+    echo ""
+    
+    brew_animation 2 "Snapping into place" "${MAGENTA}"
+    
+    if sudo snap install "${packages[@]}" 2>&1 | tee -a "${JUICE_LOG_FILE}"; then
+        celebrate_success "Snap installed!"
+        log "INFO" "Installed Snaps: ${packages[*]}"
+    else
+        echo -e "${RED}❌ Installation failed${RESET}"
+        log "ERROR" "Failed to install Snaps: ${packages[*]}"
+        return 1
+    fi
+}
+
+juice_snap_remove() {
+    local packages=("$@")
+    
+    if [[ ${#packages[@]} -eq 0 ]]; then
+        echo -e "${RED}❌ No packages specified${RESET}"
+        return 1
+    fi
+    
+    check_snap || return 1
+    
+    echo -e "${ORANGE}${BOLD}🗑️  Removing Snap(s)...${RESET}"
+    echo ""
+    
+    brew_animation 1 "Unsnapping" "${ORANGE}"
+    
+    if sudo snap remove "${packages[@]}" 2>&1 | tee -a "${JUICE_LOG_FILE}"; then
+        echo -e "${GREEN}✅ Snap(s) removed!${RESET}"
+        log "INFO" "Removed Snaps: ${packages[*]}"
+    else
+        echo -e "${RED}❌ Removal failed${RESET}"
+        return 1
+    fi
+}
+
+juice_snap_update() {
+    check_snap || return 1
+    
+    echo -e "${MAGENTA}${BOLD}🔄 Updating Snaps...${RESET}"
+    echo ""
+    
+    brew_animation 2 "Refreshing snaps" "${CYAN}"
+    
+    if sudo snap refresh 2>&1 | tee -a "${JUICE_LOG_FILE}"; then
+        echo -e "${GREEN}✅ Snaps updated!${RESET}"
+        log "INFO" "Snaps updated"
+    else
+        echo -e "${RED}❌ Update failed${RESET}"
+        return 1
+    fi
+}
+
+juice_snap_search() {
+    local query="$1"
+    
+    if [[ -z "$query" ]]; then
+        echo -e "${RED}❌ No search query specified${RESET}"
+        return 1
+    fi
+    
+    check_snap || return 1
+    
+    echo -e "${MAGENTA}${BOLD}🔍 Searching Snap Store for: ${YELLOW}${query}${RESET}"
+    echo ""
+    
+    snap find "$query"
+}
+
+juice_snap_list() {
+    check_snap || return 1
+    
+    echo -e "${MAGENTA}${BOLD}📦 Installed Snaps:${RESET}"
+    echo -e "${BLUE}────────────────────────────────────────${RESET}"
+    
+    snap list | while IFS= read -r line; do
+        echo -e "${MAGENTA}📦 ${line}${RESET}"
+    done
+}
+
+# ═══════════════════════════════════════════════════════════════════════════
+# DISTROBOX WRAPPER - Container Magic! 🐳
+# ═══════════════════════════════════════════════════════════════════════════
+
+juice_distrobox_create() {
+    local distro="${1:-arch}"
+    local name="${2:-${distro}-juice}"
+    
+    if [[ ! -v "DISTROBOX_IMAGES[${distro}]" ]]; then
+        echo -e "${RED}❌ Unknown distro: ${distro}${RESET}"
+        echo -e "${YELLOW}   Available: arch, debian, ubuntu, fedora, kali${RESET}"
+        return 1
+    fi
+    
+    check_distrobox || return 1
+    
+    local image="${DISTROBOX_IMAGES[${distro}]}"
+    
+    echo -e "${CYAN}${BOLD}🐳 Creating Distrobox Container...${RESET}"
+    echo -e "${CYAN}   Name: ${YELLOW}${name}${RESET}"
+    echo -e "${CYAN}   Image: ${YELLOW}${image}${RESET}"
+    echo ""
+    
+    brew_animation 3 "Pulling & creating container" "${CYAN}"
+    
+    if distrobox-create --name "$name" --image "$image" 2>&1 | tee -a "${JUICE_LOG_FILE}"; then
+        celebrate_success "Container created!"
+        echo -e "${GREEN}   Enter with: ${YELLOW}juice box-enter ${name}${RESET}"
+        log "INFO" "Created distrobox: ${name} from ${image}"
+    else
+        echo -e "${RED}❌ Container creation failed${RESET}"
+        return 1
+    fi
+}
+
+juice_distrobox_enter() {
+    local name="${1:-}"
+    
+    check_distrobox || return 1
+    
+    if [[ -z "$name" ]]; then
+        echo -e "${YELLOW}📋 Available containers:${RESET}"
+        distrobox-list
+        echo ""
+        echo -e "${CYAN}Enter container name:${RESET}"
+        read -r name
+    fi
+    
+    echo -e "${CYAN}${BOLD}🐳 Entering container: ${YELLOW}${name}${RESET}"
+    echo ""
+    
+    distrobox-enter "$name"
+}
+
+juice_distrobox_list() {
+    check_distrobox || return 1
+    
+    echo -e "${CYAN}${BOLD}🐳 Distrobox Containers:${RESET}"
+    echo -e "${BLUE}────────────────────────────────────────${RESET}"
+    
+    distrobox-list
+}
+
+juice_distrobox_remove() {
+    local name="$1"
+    
+    if [[ -z "$name" ]]; then
+        echo -e "${RED}❌ No container name specified${RESET}"
+        return 1
+    fi
+    
+    check_distrobox || return 1
+    
+    echo -e "${ORANGE}${BOLD}🗑️  Removing Container: ${YELLOW}${name}${RESET}"
+    echo ""
+    
+    brew_animation 2 "Destroying container" "${ORANGE}"
+    
+    if distrobox-rm --force --name "$name" 2>&1 | tee -a "${JUICE_LOG_FILE}"; then
+        echo -e "${GREEN}✅ Container removed!${RESET}"
+        log "INFO" "Removed distrobox: ${name}"
+    else
+        echo -e "${RED}❌ Removal failed${RESET}"
+        return 1
+    fi
+}
+
+juice_distrobox_install() {
+    local container="$1"
+    shift
+    local packages=("$@")
+    
+    if [[ -z "$container" ]]; then
+        echo -e "${RED}❌ No container specified${RESET}"
+        return 1
+    fi
+    
+    if [[ ${#packages[@]} -eq 0 ]]; then
+        echo -e "${RED}❌ No packages specified${RESET}"
+        return 1
+    fi
+    
+    check_distrobox || return 1
+    
+    echo -e "${CYAN}${BOLD}📦 Installing in Container: ${YELLOW}${container}${RESET}"
+    echo -e "${CYAN}   Packages: ${YELLOW}${packages[*]}${RESET}"
+    echo ""
+    
+    brew_animation 2 "Installing in container" "${CYAN}"
+    
+    # Detect package manager in container
+    local pkg_manager
+    pkg_manager=$(distrobox-enter "$container" -- which apt pacman dnf 2>/dev/null | head -1)
+    
+    local install_cmd
+    case "$pkg_manager" in
+        */apt)
+            install_cmd="apt install -y"
+            ;;
+        */pacman)
+            install_cmd="pacman -S --noconfirm"
+            ;;
+        */dnf)
+            install_cmd="dnf install -y"
+            ;;
+        *)
+            echo -e "${YELLOW}⚠️  Could not detect package manager, using apt${RESET}"
+            install_cmd="apt install -y"
+            ;;
+    esac
+    
+    if distrobox-enter "$container" -- $install_cmd "${packages[@]}" 2>&1 | tee -a "${JUICE_LOG_FILE}"; then
+        celebrate_success "Installed in container!"
+        log "INFO" "Installed in ${container}: ${packages[*]}"
+    else
+        echo -e "${RED}❌ Installation failed${RESET}"
+        return 1
+    fi
+}
+
+# ═══════════════════════════════════════════════════════════════════════════
+# QUICK ACTIONS - Time Savers! ⚡
+# ═══════════════════════════════════════════════════════════════════════════
+
+juice_refresh_all() {
+    echo -e "${GREEN}${BOLD}🔄 Refreshing Everything!${RESET}"
+    echo -e "${BLUE}════════════════════════════════════════${RESET}"
+    echo ""
+    
+    # Pacman update
+    echo -e "${GREEN}📦 Updating Pacman packages...${RESET}"
+    juice_pacman_update
+    
+    echo ""
+    
+    # Flatpak update
+    if command -v flatpak &>/dev/null; then
+        echo -e "${BLUE}📦 Updating Flatpaks...${RESET}"
+        juice_flatpak_update
+        echo ""
+    fi
+    
+    # Snap update
+    if command -v snap &>/dev/null; then
+        echo -e "${MAGENTA}📦 Updating Snaps...${RESET}"
+        juice_snap_update
+        echo ""
+    fi
+    
+    celebrate_success "Everything is fresh!"
+}
+
+juice_clean() {
+    echo -e "${YELLOW}${BOLD}🧹 Cleaning Up...${RESET}"
+    echo ""
+    
+    brew_animation 2 "Sweeping cache" "${YELLOW}"
+    
+    echo -e "${BLUE}────────────────────────────────────────${RESET}"
+    
+    # Clean pacman cache
+    echo -e "${CYAN}Cleaning pacman cache...${RESET}"
+    sudo pacman -Sc --noconfirm 2>/dev/null || true
+    
+    # Remove orphans
+    echo -e "${CYAN}Removing orphan packages...${RESET}"
+    sudo pacman -Rns $(pacman -Qtdq) --noconfirm 2>/dev/null || echo -e "${DIM}No orphans found${RESET}"
+    
+    # Clean flatpak
+    if command -v flatpak &>/dev/null; then
+        echo -e "${CYAN}Cleaning Flatpak unused data...${RESET}"
+        flatpak uninstall --unused -y 2>/dev/null || true
+    fi
+    
+    echo -e "${BLUE}────────────────────────────────────────${RESET}"
+    echo -e "${GREEN}✅ System cleaned!${RESET}"
+}
+
+juice_doctor() {
+    echo -e "${BLUE}${BOLD}🏥 System Health Check${RESET}"
+    echo -e "${BLUE}════════════════════════════════════════${RESET}"
+    echo ""
+    
+    # Check pacman
+    echo -e "${GREEN}📦 Pacman:${RESET}"
+    if command -v pacman &>/dev/null; then
+        echo -e "   ${GREEN}✓${RESET} pacman installed"
+        local pkg_count
+        pkg_count=$(pacman -Q | wc -l)
+        echo -e "   ${CYAN}  ${pkg_count} packages installed${RESET}"
+    else
+        echo -e "   ${RED}✗ pacman not found${RESET}"
+    fi
+    
+    # Check flatpak
+    echo -e "${BLUE}📦 Flatpak:${RESET}"
+    if command -v flatpak &>/dev/null; then
+        echo -e "   ${GREEN}✓${RESET} flatpak installed"
+        local flat_count
+        flat_count=$(flatpak list --app | wc -l)
+        echo -e "   ${CYAN}  ${flat_count} flatpaks installed${RESET}"
+    else
+        echo -e "   ${YELLOW}○${RESET} flatpak not installed"
+    fi
+    
+    # Check snap
+    echo -e "${MAGENTA}📦 Snap:${RESET}"
+    if command -v snap &>/dev/null; then
+        echo -e "   ${GREEN}✓${RESET} snap installed"
+        local snap_count
+        snap_count=$(snap list 2>/dev/null | wc -l)
+        echo -e "   ${CYAN}  $((snap_count - 1)) snaps installed${RESET}"
+    else
+        echo -e "   ${YELLOW}○${RESET} snap not installed"
+    fi
+    
+    # Check distrobox
+    echo -e "${CYAN}📦 Distrobox:${RESET}"
+    if command -v distrobox &>/dev/null; then
+        echo -e "   ${GREEN}✓${RESET} distrobox installed"
+        local box_count
+        box_count=$(distrobox-list 2>/dev/null | grep -c "NAME" || echo "0")
+        echo -e "   ${CYAN}  ${box_count} containers${RESET}"
+    else
+        echo -e "   ${YELLOW}○${RESET} distrobox not installed"
+    fi
+    
+    echo ""
+    echo -e "${BLUE}════════════════════════════════════════${RESET}"
+    
+    # Check for updates
+    echo -e "${YELLOW}🔍 Checking for updates...${RESET}"
+    if pacman -Qu &>/dev/null | grep -q .; then
+        local updates
+        updates=$(pacman -Qu | wc -l)
+        echo -e "   ${ORANGE}⚠${RESET} ${updates} updates available"
+        echo -e "   ${CYAN}  Run ${YELLOW}juice update${CYAN} to update${RESET}"
+    else
+        echo -e "   ${GREEN}✓${RESET} System is up to date!"
+    fi
+    
+    echo ""
+    echo -e "${GREEN}${BOLD}✅ Health check complete!${RESET}"
+}
+
+# ═══════════════════════════════════════════════════════════════════════════
+# MAIN ENTRY POINT - Let's Go! 🚀
+# ═══════════════════════════════════════════════════════════════════════════
+
+main() {
+    juice_init
+    
+    # No arguments - show help
+    if [[ $# -eq 0 ]]; then
+        show_help
+        exit 0
+    fi
+    
+    local command="$1"
+    shift
+    
+    case "$command" in
+        # Pacman commands
+        install|-S|-Si)
+            juice_pacman_install "$@"
+            ;;
+        remove|-R|-Rs|-Rns)
+            juice_pacman_remove "$@"
+            ;;
+        update|-Syu|upgrade)
+            juice_pacman_update
+            ;;
+        search|-Ss)
+            juice_pacman_search "$@"
+            ;;
+        info|-Qi)
+            juice_pacman_info "$@"
+            ;;
+        list|-Q|-Qe)
+            juice_pacman_list
+            ;;
+        
+        # Flatpak commands
+        flat-install|fi)
+            juice_flatpak_install "$@"
+            ;;
+        flat-remove|fr)
+            juice_flatpak_remove "$@"
+            ;;
+        flat-update|fu)
+            juice_flatpak_update
+            ;;
+        flat-search|fs)
+            juice_flatpak_search "$@"
+            ;;
+        flat-list|fl)
+            juice_flatpak_list
+            ;;
+        
+        # Snap commands
+        snap-install|si)
+            juice_snap_install "$@"
+            ;;
+        snap-remove|sr)
+            juice_snap_remove "$@"
+            ;;
+        snap-update|su)
+            juice_snap_update
+            ;;
+        snap-search|ss)
+            juice_snap_search "$@"
+            ;;
+        snap-list|sl)
+            juice_snap_list
+            ;;
+        
+        # Distrobox commands
+        box-create|bc)
+            juice_distrobox_create "$@"
+            ;;
+        box-enter|be)
+            juice_distrobox_enter "$@"
+            ;;
+        box-list|bl)
+            juice_distrobox_list
+            ;;
+        box-remove|br)
+            juice_distrobox_remove "$@"
+            ;;
+        box-install|bi)
+            juice_distrobox_install "$@"
+            ;;
+        
+        # Quick actions
+        refresh)
+            juice_refresh_all
+            ;;
+        clean)
+            juice_clean
+            ;;
+        doctor)
+            juice_doctor
+            ;;
+        
+        # Meta commands
+        help|-h|--help)
+            show_help
+            ;;
+        version|-v|--version)
+            show_version
+            ;;
+        
+        # Unknown command
+        *)
+            echo -e "${RED}❌ Unknown command: ${command}${RESET}"
+            echo -e "${YELLOW}   Run ${GREEN}juice help${YELLOW} for usage information.${RESET}"
+            exit 1
+            ;;
+    esac
+}
+
+# Run main function
+main "$@"
