@@ -20,21 +20,11 @@
 
 ## 📦 Installation
 
-### Quick Install (One-liner)
-
-```bash
-# Using curl
-curl -fsSL https://juice.pm/install | sudo bash
-
-# Using wget
-wget -qO- https://juice.pm/install | sudo bash
-```
-
 ### Manual Install
 
 ```bash
 # Download the script
-sudo curl -o /usr/local/bin/juice https://raw.githubusercontent.com/juice-pm/juice/main/juice
+sudo curl -o /usr/local/bin/juice https://raw.githubusercontent.com/floatingskies/juice/main/juice
 
 # Make executable
 sudo chmod +x /usr/local/bin/juice
